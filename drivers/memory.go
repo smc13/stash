@@ -1,8 +1,8 @@
 package drivers
 
 import (
+	"context"
 	"sync"
-	"time"
 )
 
 type memoryDriver struct {
@@ -19,25 +19,20 @@ func NewMemoryDriver() Driver {
 
 func (d *memoryDriver) Init() error { return nil }
 
-func (d *memoryDriver) Add(key string, value []byte, expires time.Duration) error {
+func (d *memoryDriver) Add(_ context.Context, raw RawValue) error {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
-	raw, found := d.values[key]
-	if found && !raw.IsExpired() {
+	val, found := d.values[raw.Key]
+	if found && !val.IsExpired() {
 		return nil
 	}
 
-	d.values[key] = &RawValue{
-		Key:     key,
-		Value:   value,
-		Expires: time.Now().Add(expires),
-	}
-
+	d.values[raw.Key] = &raw
 	return nil
 }
 
-func (d *memoryDriver) Flush() error {
+func (d *memoryDriver) Flush(_ context.Context) error {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
@@ -45,19 +40,23 @@ func (d *memoryDriver) Flush() error {
 	return nil
 }
 
-func (d *memoryDriver) Forever(key string, value []byte) error {
-	return d.Put(key, value, 999999999*time.Second)
+func (d *memoryDriver) Forever(ctx context.Context, raw RawValue) error {
+	return d.Put(ctx, raw)
 }
 
-func (d *memoryDriver) Forget(key string) error {
+func (d *memoryDriver) Forget(_ context.Context, key string) (bool, error) {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
+	if _, ok := d.values[key]; !ok {
+		return false, nil
+	}
+
 	delete(d.values, key)
-	return nil
+	return true, nil
 }
 
-func (d *memoryDriver) Get(key string) (*RawValue, error) {
+func (d *memoryDriver) Get(_ context.Context, key string) (*RawValue, error) {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
@@ -74,15 +73,10 @@ func (d *memoryDriver) Get(key string) (*RawValue, error) {
 	return rv, nil
 }
 
-func (d *memoryDriver) Put(key string, value []byte, expires time.Duration) error {
+func (d *memoryDriver) Put(_ context.Context, raw RawValue) error {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
-	d.values[key] = &RawValue{
-		Key:     key,
-		Value:   value,
-		Expires: time.Now().Add(expires),
-	}
-
+	d.values[raw.Key] = &raw
 	return nil
 }

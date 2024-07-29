@@ -1,6 +1,7 @@
 package drivers
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
@@ -33,13 +34,13 @@ func (d *fileDriver) Init() error {
 	return nil
 }
 
-func (d *fileDriver) Add(key string, value []byte, expires time.Duration) error {
-	_, err := d.Get(key)
+func (d *fileDriver) Add(ctx context.Context, raw RawValue) error {
+	_, err := d.Get(ctx, raw.Key)
 
 	return err
 }
 
-func (d *fileDriver) Flush() error {
+func (d *fileDriver) Flush(_ context.Context) error {
 	if _, err := os.Stat(d.path); os.IsNotExist(err) {
 		return nil
 	}
@@ -51,40 +52,46 @@ func (d *fileDriver) Flush() error {
 	return os.MkdirAll(d.path, os.ModePerm)
 }
 
-func (d *fileDriver) Forever(key string, value []byte) error {
-	return d.Put(key, value, 0)
+func (d *fileDriver) Forever(ctx context.Context, raw RawValue) error {
+	raw.Expires = time.Unix(9999999999, 0) // the end of Unix time :(
+	return d.Put(ctx, raw)
 }
 
-func (d *fileDriver) Forget(key string) error {
+func (d *fileDriver) Forget(_ context.Context, key string) (bool, error) {
 	unlock := d.lock(key)
 	defer unlock()
 
-	return os.Remove(d.pathForKey(key))
+	err := os.Remove(d.pathForKey(key))
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return true, err
 }
 
-func (d *fileDriver) Get(key string) (*RawValue, error) {
+func (d *fileDriver) Get(ctx context.Context, key string) (*RawValue, error) {
 	unlock := d.lock(key)
 	defer unlock()
 
-	return d.getPayload(key)
+	return d.getPayload(ctx, key)
 }
 
-func (d *fileDriver) Put(key string, value []byte, expires time.Duration) error {
-	unlock := d.lock(key)
+func (d *fileDriver) Put(_ context.Context, raw RawValue) error {
+	unlock := d.lock(raw.Key)
 	defer unlock()
 
-	path := d.pathForKey(key)
+	path := d.pathForKey(raw.Key)
 	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	if _, err := fmt.Fprintf(file, "%d", d.expires(expires)); err != nil {
+	if _, err := fmt.Fprintf(file, "%d", raw.Expires.Unix()); err != nil {
 		return err
 	}
 
-	_, err = file.Write(value)
+	_, err = file.Write([]byte(raw.AsString()))
 	return err
 }
 
@@ -96,17 +103,7 @@ func (d *fileDriver) pathForKey(key string) string {
 	return filepath.Join(d.path, hex)
 }
 
-// Calculate the expiration time for a cache value as a Unix timestamp
-func (d *fileDriver) expires(duration time.Duration) int64 {
-	t := time.Now().Add(duration).Unix()
-	if duration == 0 || t > 9999999999 {
-		return 9999999999
-	}
-
-	return t
-}
-
-func (d *fileDriver) getPayload(key string) (*RawValue, error) {
+func (d *fileDriver) getPayload(ctx context.Context, key string) (*RawValue, error) {
 	path := d.pathForKey(key)
 
 	file, err := os.Open(path)
@@ -129,7 +126,7 @@ func (d *fileDriver) getPayload(key string) (*RawValue, error) {
 
 	// check if the value is expired
 	if time.Now().After(expiresAt) {
-		if err := d.Forget(key); err != nil {
+		if _, err := d.Forget(ctx, key); err != nil {
 			return nil, err
 		}
 
@@ -142,7 +139,7 @@ func (d *fileDriver) getPayload(key string) (*RawValue, error) {
 		return nil, err
 	}
 
-	return &RawValue{key, value, expiresAt}, nil
+	return RawValueFromString(key, string(value), expiresAt)
 }
 
 func (d *fileDriver) lock(key string) func() {

@@ -1,7 +1,7 @@
 package drivers
 
 import (
-	"time"
+	"context"
 )
 
 type Driver interface {
@@ -9,25 +9,15 @@ type Driver interface {
 	Init() error
 
 	// Retrieve a value from the cache
-	Get(key string) (*RawValue, error)
+	Get(ctx context.Context, key string) (*RawValue, error)
 	// Store a value in the cache
-	Put(key string, value []byte, expires time.Duration) error
+	Put(ctx context.Context, raw RawValue) error
 	// Store a value in the cache if the key does not exist / is expired
-	Add(key string, value []byte, expires time.Duration) error
+	Add(ctx context.Context, raw RawValue) error
 	// Store a value in the cache forever
-	Forever(key string, value []byte) error
+	Forever(ctx context.Context, raw RawValue) error
 	// Remove a value from the cache
-	Forget(key string) error
+	Forget(ctx context.Context, key string) (bool, error)
 	// Remove all values from the cache
-	Flush() error
-}
-
-type RawValue struct {
-	Key     string
-	Value   []byte
-	Expires time.Time
-}
-
-func (rv *RawValue) IsExpired() bool {
-	return rv.Expires.Before(time.Now())
+	Flush(ctx context.Context) error
 }

@@ -2,6 +2,7 @@ package stash
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"log/slog"
 	"time"
@@ -29,8 +30,8 @@ func (s *Stash) WithLogger(logger slog.Logger) *Stash {
 }
 
 // Retrieve a value from the cache and deserialize it
-func (s *Stash) Get(key string, value any) error {
-	b, err := s.GetBytes(key)
+func (s *Stash) Get(ctx context.Context, key string, value any) error {
+	b, err := s.GetBytes(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -39,8 +40,8 @@ func (s *Stash) Get(key string, value any) error {
 }
 
 // Retrieve a value from the cache
-func (s *Stash) GetBytes(key string) ([]byte, error) {
-	raw, err := s.driver.Get(key)
+func (s *Stash) GetBytes(ctx context.Context, key string) ([]byte, error) {
+	raw, err := s.driver.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -58,88 +59,88 @@ func (s *Stash) GetBytes(key string) ([]byte, error) {
 }
 
 // Serialize a value and store it in the cache
-func (s *Stash) Put(key string, value any, duration time.Duration) error {
+func (s *Stash) Put(ctx context.Context, key string, value any, duration time.Duration) error {
 	b, err := s.valueToBytes(value)
 	if err != nil {
 		return err
 	}
 
-	return s.PutBytes(key, b, duration)
+	return s.PutBytes(ctx, key, b, duration)
 }
 
 // Store a pre-serialized value in the cache
-func (s *Stash) PutBytes(key string, value []byte, duration time.Duration) error {
-	return s.driver.Put(key, value, duration)
+func (s *Stash) PutBytes(ctx context.Context, key string, value []byte, duration time.Duration) error {
+	return s.driver.Put(ctx, drivers.RawValueFromBytes(key, value, s.durationToTime(duration)))
 }
 
 // Serialize a value and store it in the cache if the key does not exist / is expired
-func (s *Stash) Add(key string, value any, duration time.Duration) error {
+func (s *Stash) Add(ctx context.Context, key string, value any, duration time.Duration) error {
 	b, err := s.valueToBytes(value)
 	if err != nil {
 		return err
 	}
 
-	return s.AddBytes(key, b, duration)
+	return s.AddBytes(ctx, key, b, duration)
 }
 
 // Store a pre-serialized value in the cache if the key does not exist / is expired
-func (s *Stash) AddBytes(key string, value []byte, duration time.Duration) error {
-	return s.driver.Add(key, value, duration)
+func (s *Stash) AddBytes(ctx context.Context, key string, value []byte, duration time.Duration) error {
+	return s.driver.Add(ctx, drivers.RawValueFromBytes(key, value, s.durationToTime(duration)))
 }
 
 // Serialize a value and store it in the cache forever
-func (s *Stash) Forever(key string, value any) error {
+func (s *Stash) Forever(ctx context.Context, key string, value any) error {
 	b, err := s.valueToBytes(value)
 	if err != nil {
 		return err
 	}
 
-	return s.ForeverBytes(key, b)
+	return s.ForeverBytes(ctx, key, b)
 }
 
 // Store a pre-serialized value in the cache forever
-func (s *Stash) ForeverBytes(key string, value []byte) error {
-	return s.driver.Forever(key, value)
+func (s *Stash) ForeverBytes(ctx context.Context, key string, value []byte) error {
+	return s.driver.Forever(ctx, drivers.RawValueFromBytes(key, value, s.durationToTime(0)))
 }
 
 // Remove a value from the cache
-func (s *Stash) Forget(key string) error {
-	return s.driver.Forget(key)
+func (s *Stash) Forget(ctx context.Context, key string) (bool, error) {
+	return s.driver.Forget(ctx, key)
 }
 
 // Remove all values from the cache, or only expired values
-func (s *Stash) Flush() error {
-	return s.driver.Flush()
+func (s *Stash) Flush(ctx context.Context) error {
+	return s.driver.Flush(ctx)
 }
 
 // Check if a value exists in the cache
-func (s *Stash) Has(key string) bool {
-	raw, _ := s.driver.Get(key)
+func (s *Stash) Has(ctx context.Context, key string) bool {
+	raw, _ := s.driver.Get(ctx, key)
 	return raw != nil
 }
 
 // Check if a value is missing from the cache
-func (s *Stash) Missing(key string) bool {
-	return !s.Has(key)
+func (s *Stash) Missing(ctx context.Context, key string) bool {
+	return !s.Has(ctx, key)
 }
 
 // Retrieve a value from the cache and then remove it
-func (s *Stash) Pull(key string, value any) error {
-	if err := s.Get(key, value); err != nil {
-		return err
+func (s *Stash) Pull(ctx context.Context, key string, value any) (bool, error) {
+	if err := s.Get(ctx, key, value); err != nil {
+		return false, err
 	}
 
-	return s.Forget(key)
+	return s.Forget(ctx, key)
 }
 
 // Retrieve a value from the cache and then remove it
-func (s *Stash) PullBytes(key string) ([]byte, error) {
-	b, err := s.GetBytes(key)
+func (s *Stash) PullBytes(ctx context.Context, key string) ([]byte, error) {
+	b, err := s.GetBytes(ctx, key)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.Forget(key); err != nil {
+	if _, err := s.Forget(ctx, key); err != nil {
 		return nil, err
 	}
 
@@ -169,4 +170,12 @@ func (s *Stash) bytesToValue(b []byte, value any) error {
 
 	dec := gob.NewDecoder(bytes.NewReader(b))
 	return dec.Decode(value)
+}
+
+func (s *Stash) durationToTime(d time.Duration) time.Time {
+	if d == 0 {
+		return time.Time{}
+	}
+
+	return time.Now().Add(d)
 }
