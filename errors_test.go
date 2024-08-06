@@ -8,10 +8,6 @@ import (
 )
 
 func TestIsCacheMiss(t *testing.T) {
-	var err error
-	err = &CacheMissError{}
-	assert.True(t, IsCacheMiss(err))
-
-	err = errors.New("test")
-	assert.False(t, IsCacheMiss(err))
+	assert.True(t, IsCacheMiss(cacheMissErr))
+	assert.False(t, IsCacheMiss(errors.New("test")))
 }

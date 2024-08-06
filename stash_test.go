@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smc13/stash/drivers"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,19 +14,20 @@ type user struct {
 }
 
 func stashValues(t *testing.T, ctx context.Context, stash *Stash) {
-	assert.NoError(t, stash.Put(ctx, "bytes", []byte("bytes"), 5*time.Minute))
-	assert.NoError(t, stash.Put(ctx, "string", "string", 5*time.Minute))
-	assert.NoError(t, stash.Put(ctx, "int", 1, 5*time.Minute))
-	assert.NoError(t, stash.Put(ctx, "struct", user{1, "test"}, 5*time.Minute))
+	assert.NoError(t, stash.Put(ctx, &StashItem{"bytes", BinaryString([]byte("bytes")), time.Now().Add(5 * time.Minute)}))
+	assert.NoError(t, stash.Put(ctx, &StashItem{"string", "string", time.Now().Add(5 * time.Minute)}))
+	assert.NoError(t, stash.Put(ctx, &StashItem{"int", 1, time.Now().Add(5 * time.Minute)}))
+	assert.NoError(t, stash.Put(ctx, &StashItem{"struct", &user{1, "Hello world"}, time.Now().Add(5 * time.Minute)}))
+	assert.NoError(t, stash.Put(ctx, &StashItem{"forever", "forever", time.Time{}}))
 }
 
 func TestPut(t *testing.T) {
 	tests := []struct {
 		name   string
-		driver drivers.Driver
+		driver Driver
 	}{
-		{"file", drivers.NewFileDriver(t.TempDir())},
-		{"memory", drivers.NewMemoryDriver()},
+		{"file", NewFileDriver(t.TempDir()).Prefix("test")},
+		{"memory", NewMemoryDriver()},
 	}
 
 	for _, tt := range tests {
@@ -43,10 +43,10 @@ func TestPut(t *testing.T) {
 func TestGet(t *testing.T) {
 	tests := []struct {
 		name   string
-		driver drivers.Driver
+		driver Driver
 	}{
-		{"file", drivers.NewFileDriver(t.TempDir())},
-		{"memory", drivers.NewMemoryDriver()},
+		{"file", NewFileDriver(t.TempDir())},
+		{"memory", NewMemoryDriver()},
 	}
 
 	for _, tt := range tests {
@@ -56,21 +56,25 @@ func TestGet(t *testing.T) {
 
 			stashValues(t, ctx, stash)
 
-			var b []byte
-			assert.NoError(t, stash.Get(ctx, "bytes", &b))
+			res := stash.Get(ctx, "bytes")
+			b, err := res.AsBytes()
+			assert.NoError(t, err)
 			assert.Equal(t, []byte("bytes"), b)
 
-			var s string
-			assert.NoError(t, stash.Get(ctx, "string", &s))
+			res = stash.Get(ctx, "string")
+			s, err := res.AsString()
+			assert.NoError(t, err)
 			assert.Equal(t, "string", s)
 
-			var i int
-			assert.NoError(t, stash.Get(ctx, "int", &i))
-			assert.Equal(t, 1, i)
+			res = stash.Get(ctx, "int")
+			i, err := res.AsInt64()
+			assert.NoError(t, err)
+			assert.Equal(t, int64(1), i)
 
 			var u user
-			assert.NoError(t, stash.Get(ctx, "struct", &u))
-			assert.Equal(t, user{1, "test"}, u)
+			res = stash.Get(ctx, "struct")
+			assert.NoError(t, res.AsJSON(&u))
+			assert.Equal(t, user{1, "Hello world"}, u)
 		})
 	}
 }

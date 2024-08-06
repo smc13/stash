@@ -1,4 +1,4 @@
-package drivers
+package stash
 
 import (
 	"context"
@@ -17,11 +17,12 @@ import (
 type fileDriver struct {
 	path        string
 	permissions os.FileMode
+	prefix      string
 	mutx        sync.Map
 }
 
 // Create a new file driver, stored at the given path
-func NewFileDriver(path string) Driver {
+func NewFileDriver(path string) *fileDriver {
 	return &fileDriver{path: path}
 }
 
@@ -34,7 +35,12 @@ func (d *fileDriver) Init() error {
 	return nil
 }
 
-func (d *fileDriver) Add(ctx context.Context, raw RawValue) error {
+func (d *fileDriver) Prefix(prefix string) Driver {
+	d.prefix = prefix
+	return d
+}
+
+func (d *fileDriver) Add(ctx context.Context, raw CacheItem) error {
 	_, err := d.Get(ctx, raw.Key)
 
 	return err
@@ -45,15 +51,16 @@ func (d *fileDriver) Flush(_ context.Context) error {
 		return nil
 	}
 
-	if err := os.RemoveAll(d.path); err != nil {
+	path := filepath.Join(d.path, d.prefix)
+	if err := os.RemoveAll(path); err != nil {
 		return err
 	}
 
 	return os.MkdirAll(d.path, os.ModePerm)
 }
 
-func (d *fileDriver) Forever(ctx context.Context, raw RawValue) error {
-	raw.Expires = time.Unix(9999999999, 0) // the end of Unix time :(
+func (d *fileDriver) Forever(ctx context.Context, raw CacheItem) error {
+	raw.Expires = time.Time{}
 	return d.Put(ctx, raw)
 }
 
@@ -61,7 +68,12 @@ func (d *fileDriver) Forget(_ context.Context, key string) (bool, error) {
 	unlock := d.lock(key)
 	defer unlock()
 
-	err := os.Remove(d.pathForKey(key))
+	path, err := d.pathForKey(key, false)
+	if err != nil {
+		return false, err
+	}
+
+	err = os.Remove(path)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
@@ -69,42 +81,60 @@ func (d *fileDriver) Forget(_ context.Context, key string) (bool, error) {
 	return true, err
 }
 
-func (d *fileDriver) Get(ctx context.Context, key string) (*RawValue, error) {
+func (d *fileDriver) Get(ctx context.Context, key string) (*CacheItem, error) {
 	unlock := d.lock(key)
 	defer unlock()
 
 	return d.getPayload(ctx, key)
 }
 
-func (d *fileDriver) Put(_ context.Context, raw RawValue) error {
+func (d *fileDriver) Put(_ context.Context, raw CacheItem) error {
 	unlock := d.lock(raw.Key)
 	defer unlock()
 
-	path := d.pathForKey(raw.Key)
+	path, err := d.pathForKey(raw.Key, true)
+	if err != nil {
+		return err
+	}
+
 	file, err := os.Create(path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	if _, err := fmt.Fprintf(file, "%d", raw.Expires.Unix()); err != nil {
+	unix := raw.Expires.Unix()
+	if raw.Expires.IsZero() {
+		unix = 9999999999
+	}
+
+	if _, err := fmt.Fprintf(file, "%d", unix); err != nil {
 		return err
 	}
 
-	_, err = file.Write([]byte(raw.AsString()))
+	_, err = file.Write([]byte(raw.Value))
 	return err
 }
 
-func (d *fileDriver) pathForKey(key string) string {
+func (d *fileDriver) pathForKey(key string, create bool) (string, error) {
 	hasher := sha1.New()
 	hash := hasher.Sum([]byte(key))
 	hex := fmt.Sprintf("%x", hash)
 
-	return filepath.Join(d.path, hex)
+	path := filepath.Join(d.path, d.prefix, hex)
+
+	if !create {
+		return path, nil
+	}
+
+	return path, os.MkdirAll(filepath.Dir(path), os.ModePerm)
 }
 
-func (d *fileDriver) getPayload(ctx context.Context, key string) (*RawValue, error) {
-	path := d.pathForKey(key)
+func (d *fileDriver) getPayload(ctx context.Context, key string) (*CacheItem, error) {
+	path, err := d.pathForKey(key, false)
+	if err != nil {
+		return nil, err
+	}
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -120,6 +150,10 @@ func (d *fileDriver) getPayload(ctx context.Context, key string) (*RawValue, err
 	expire := make([]byte, 10)
 	if _, err := file.Read(expire); err != nil {
 		return nil, err
+	}
+
+	if len(expire) != 10 {
+		return nil, fmt.Errorf("invalid expiration time")
 	}
 
 	expiresAt := time.Unix(int64(binary.BigEndian.Uint64(expire)), 0)
@@ -139,7 +173,7 @@ func (d *fileDriver) getPayload(ctx context.Context, key string) (*RawValue, err
 		return nil, err
 	}
 
-	return RawValueFromString(key, string(value), expiresAt)
+	return &CacheItem{Key: key, Value: string(value), Expires: expiresAt}, nil
 }
 
 func (d *fileDriver) lock(key string) func() {
