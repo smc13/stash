@@ -3,47 +3,34 @@ package stash
 import (
 	"fmt"
 	"time"
-
-	"github.com/smc13/stash/drivers"
 )
-
-type Stashable interface {
-	ToStash() drivers.CacheItem
-}
 
 type StashItem struct {
 	// The unique key for the cache item
-	Key string
+	key string
 	// Value of the cache item, encodable to a string
-	Value any
+	value any
 	// The time after which the cache item will expire
-	Expires time.Time
-}
-
-type stashCacheItem struct {
-	key     string
-	value   string
 	expires time.Time
 }
 
-func (sci *stashCacheItem) Key() string        { return sci.key }
-func (sci *stashCacheItem) Value() string      { return sci.value }
-func (sci *stashCacheItem) Expires() time.Time { return sci.expires }
+func NewStashItem(key string, value any, expires time.Time) (*StashItem, error) {
+	return &StashItem{key: key, value: value, expires: expires}, nil
+}
 
-func (si *StashItem) ToStash() drivers.CacheItem {
+func (si *StashItem) Key() string        { return si.key }
+func (si *StashItem) Expires() time.Time { return si.expires }
+func (si *StashItem) RawValue() any      { return si.value }
+func (si *StashItem) Value() string {
 	var valString string
-	switch si.Value.(type) {
+	switch si.value.(type) {
 	case string:
-		valString = si.Value.(string)
+		valString = si.value.(string)
 	case fmt.Stringer:
-		valString = si.Value.(fmt.Stringer).String()
+		valString = si.value.(fmt.Stringer).String()
 	default:
-		valString = JSON(si.Value)
+		valString = JSON(si.value)
 	}
 
-	return &stashCacheItem{
-		key:     si.Key,
-		value:   valString,
-		expires: si.Expires,
-	}
+	return valString
 }
