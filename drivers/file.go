@@ -1,4 +1,4 @@
-package stash
+package drivers
 
 import (
 	"context"
@@ -41,9 +41,12 @@ func (d *fileDriver) Prefix(prefix string) Driver {
 }
 
 func (d *fileDriver) Add(ctx context.Context, raw CacheItem) error {
-	_, err := d.Get(ctx, raw.Key)
+	val, err := d.Get(ctx, raw.Key())
+	if err == nil && val != nil {
+		return nil
+	}
 
-	return err
+	return d.Put(ctx, raw)
 }
 
 func (d *fileDriver) Flush(_ context.Context) error {
@@ -59,8 +62,8 @@ func (d *fileDriver) Flush(_ context.Context) error {
 	return os.MkdirAll(d.path, os.ModePerm)
 }
 
+// forever doesn't need to do anything special for files, so just forward to Put
 func (d *fileDriver) Forever(ctx context.Context, raw CacheItem) error {
-	raw.Expires = time.Time{}
 	return d.Put(ctx, raw)
 }
 
@@ -81,7 +84,7 @@ func (d *fileDriver) Forget(_ context.Context, key string) (bool, error) {
 	return true, err
 }
 
-func (d *fileDriver) Get(ctx context.Context, key string) (*CacheItem, error) {
+func (d *fileDriver) Get(ctx context.Context, key string) (*string, error) {
 	unlock := d.lock(key)
 	defer unlock()
 
@@ -89,10 +92,11 @@ func (d *fileDriver) Get(ctx context.Context, key string) (*CacheItem, error) {
 }
 
 func (d *fileDriver) Put(_ context.Context, raw CacheItem) error {
-	unlock := d.lock(raw.Key)
+	key := raw.Key()
+	unlock := d.lock(key)
 	defer unlock()
 
-	path, err := d.pathForKey(raw.Key, true)
+	path, err := d.pathForKey(key, true)
 	if err != nil {
 		return err
 	}
@@ -103,8 +107,8 @@ func (d *fileDriver) Put(_ context.Context, raw CacheItem) error {
 	}
 	defer file.Close()
 
-	unix := raw.Expires.Unix()
-	if raw.Expires.IsZero() {
+	unix := raw.Expires().Unix()
+	if raw.Expires().IsZero() {
 		unix = 9999999999
 	}
 
@@ -112,7 +116,7 @@ func (d *fileDriver) Put(_ context.Context, raw CacheItem) error {
 		return err
 	}
 
-	_, err = file.Write([]byte(raw.Value))
+	_, err = file.Write([]byte(raw.Value()))
 	return err
 }
 
@@ -130,7 +134,7 @@ func (d *fileDriver) pathForKey(key string, create bool) (string, error) {
 	return path, os.MkdirAll(filepath.Dir(path), os.ModePerm)
 }
 
-func (d *fileDriver) getPayload(ctx context.Context, key string) (*CacheItem, error) {
+func (d *fileDriver) getPayload(ctx context.Context, key string) (*string, error) {
 	path, err := d.pathForKey(key, false)
 	if err != nil {
 		return nil, err
@@ -173,7 +177,8 @@ func (d *fileDriver) getPayload(ctx context.Context, key string) (*CacheItem, er
 		return nil, err
 	}
 
-	return &CacheItem{Key: key, Value: string(value), Expires: expiresAt}, nil
+	val := string(value)
+	return &val, nil
 }
 
 func (d *fileDriver) lock(key string) func() {

@@ -5,17 +5,19 @@ import (
 	"log/slog"
 
 	"errors"
+
+	"github.com/smc13/stash/drivers"
 )
 
 type Stash struct {
-	driver Driver
+	driver drivers.Driver
 
 	logger *slog.Logger
 	errKey string
 }
 
 // Creates a new Stash instance with the given driver
-func New(driver Driver, opts ...StashOption) (*Stash, error) {
+func New(driver drivers.Driver, opts ...StashOption) (*Stash, error) {
 	if err := driver.Init(); err != nil {
 		return nil, err
 	}
@@ -35,16 +37,16 @@ func (s *Stash) Get(ctx context.Context, key string) *CacheResult {
 	item, err := s.driver.Get(ctx, key)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "error retriving key from cache", slog.String("key", key), slog.String(s.errKey, err.Error()))
-		return &CacheResult{key, "", errors.Join(err, errors.New("cache get error")), nil}
+		return &CacheResult{key, "", errors.Join(err, errors.New("cache get error"))}
 	}
 
-	if item == nil || item.IsExpired() {
+	if item == nil {
 		slog.DebugContext(ctx, "cache miss", slog.String("key", key))
-		return &CacheResult{key, "", cacheMissErr, nil}
+		return &CacheResult{key, "", cacheMissErr}
 	}
 
 	slog.DebugContext(ctx, "cache hit", slog.String("key", key))
-	return &CacheResult{key, item.Value, nil, item}
+	return &CacheResult{key, *item, nil}
 }
 
 // Put a value in the cache
@@ -55,23 +57,24 @@ func (s *Stash) Put(ctx context.Context, item Stashable) error {
 	}
 
 	var err error
-	if cacheItem.Expires.IsZero() {
-		err = s.driver.Forever(ctx, *cacheItem)
+	if cacheItem.Expires().IsZero() {
+		err = s.driver.Forever(ctx, cacheItem)
 	} else {
-		err = s.driver.Put(ctx, *cacheItem)
+		err = s.driver.Put(ctx, cacheItem)
 	}
 
 	if err != nil {
-		s.logger.ErrorContext(ctx, "error while storing key in cache", slog.String("key", cacheItem.Key), slog.String(s.errKey, err.Error()))
+		s.logger.ErrorContext(ctx, "error while storing key in cache", slog.String("key", cacheItem.Key()), slog.String(s.errKey, err.Error()))
 	}
 	return err
 }
 
 // Add a value to the cache if it does not exist
-func (s *Stash) Add(ctx context.Context, item CacheItem) error {
-	err := s.driver.Add(ctx, item)
+func (s *Stash) Add(ctx context.Context, item Stashable) error {
+	cacheItem := item.ToStash()
+	err := s.driver.Add(ctx, cacheItem)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "error while adding key to cache", slog.String("key", item.Key), slog.String(s.errKey, err.Error()))
+		s.logger.ErrorContext(ctx, "error while adding key to cache", slog.String("key", cacheItem.Key()), slog.String(s.errKey, err.Error()))
 	}
 
 	return err

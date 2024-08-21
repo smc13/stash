@@ -11,8 +11,6 @@ type CacheResult struct {
 	key string
 	val string
 	err error
-
-	i *CacheItem
 }
 
 // Key returns the key of the cache result

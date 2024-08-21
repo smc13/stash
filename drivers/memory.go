@@ -1,18 +1,19 @@
-package stash
+package drivers
 
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 type memoryDriver struct {
-	values map[string]*CacheItem
+	values map[string]CacheItem
 	mutx   sync.Mutex
 }
 
 func NewMemoryDriver() Driver {
 	return &memoryDriver{
-		values: make(map[string]*CacheItem),
+		values: make(map[string]CacheItem),
 		mutx:   sync.Mutex{},
 	}
 }
@@ -25,12 +26,12 @@ func (d *memoryDriver) Add(_ context.Context, raw CacheItem) error {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
-	val, found := d.values[raw.Key]
-	if found && !val.IsExpired() {
+	val, found := d.values[raw.Key()]
+	if found && val.Expires().After(time.Now()) {
 		return nil
 	}
 
-	d.values[raw.Key] = &raw
+	d.values[raw.Key()] = raw
 	return nil
 }
 
@@ -38,7 +39,7 @@ func (d *memoryDriver) Flush(_ context.Context) error {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
-	d.values = make(map[string]*CacheItem)
+	d.values = make(map[string]CacheItem)
 	return nil
 }
 
@@ -58,7 +59,7 @@ func (d *memoryDriver) Forget(_ context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-func (d *memoryDriver) Get(_ context.Context, key string) (*CacheItem, error) {
+func (d *memoryDriver) Get(_ context.Context, key string) (*string, error) {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
@@ -67,18 +68,19 @@ func (d *memoryDriver) Get(_ context.Context, key string) (*CacheItem, error) {
 		return nil, nil
 	}
 
-	if rv.IsExpired() {
+	if rv.Expires().Before(time.Now()) {
 		delete(d.values, key)
 		return nil, nil
 	}
 
-	return rv, nil
+	val := rv.Value()
+	return &val, nil
 }
 
 func (d *memoryDriver) Put(_ context.Context, raw CacheItem) error {
 	d.mutx.Lock()
 	defer d.mutx.Unlock()
 
-	d.values[raw.Key] = &raw
+	d.values[raw.Key()] = raw
 	return nil
 }

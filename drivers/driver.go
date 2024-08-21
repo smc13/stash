@@ -1,4 +1,4 @@
-package stash
+package drivers
 
 import (
 	"context"
@@ -9,7 +9,7 @@ type Driver interface {
 	Init() error
 
 	// Retrieve a value from the cache
-	Get(ctx context.Context, key string) (*CacheItem, error)
+	Get(ctx context.Context, key string) (*string, error)
 	// Store a value in the cache
 	Put(ctx context.Context, raw CacheItem) error
 	// Store a value in the cache if the key does not exist / is expired

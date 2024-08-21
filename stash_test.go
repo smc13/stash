@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smc13/stash/drivers"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,10 +25,10 @@ func stashValues(t *testing.T, ctx context.Context, stash *Stash) {
 func TestPut(t *testing.T) {
 	tests := []struct {
 		name   string
-		driver Driver
+		driver drivers.Driver
 	}{
-		{"file", NewFileDriver(t.TempDir()).Prefix("test")},
-		{"memory", NewMemoryDriver()},
+		{"file", drivers.NewFileDriver(t.TempDir()).Prefix("test")},
+		{"memory", drivers.NewMemoryDriver()},
 	}
 
 	for _, tt := range tests {
@@ -43,10 +44,10 @@ func TestPut(t *testing.T) {
 func TestGet(t *testing.T) {
 	tests := []struct {
 		name   string
-		driver Driver
+		driver drivers.Driver
 	}{
-		{"file", NewFileDriver(t.TempDir())},
-		{"memory", NewMemoryDriver()},
+		{"file", drivers.NewFileDriver(t.TempDir())},
+		{"memory", drivers.NewMemoryDriver()},
 	}
 
 	for _, tt := range tests {

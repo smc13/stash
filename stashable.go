@@ -3,10 +3,12 @@ package stash
 import (
 	"fmt"
 	"time"
+
+	"github.com/smc13/stash/drivers"
 )
 
 type Stashable interface {
-	ToStash() *CacheItem
+	ToStash() drivers.CacheItem
 }
 
 type StashItem struct {
@@ -18,7 +20,17 @@ type StashItem struct {
 	Expires time.Time
 }
 
-func (si *StashItem) ToStash() *CacheItem {
+type stashCacheItem struct {
+	key     string
+	value   string
+	expires time.Time
+}
+
+func (sci *stashCacheItem) Key() string        { return sci.key }
+func (sci *stashCacheItem) Value() string      { return sci.value }
+func (sci *stashCacheItem) Expires() time.Time { return sci.expires }
+
+func (si *StashItem) ToStash() drivers.CacheItem {
 	var valString string
 	switch si.Value.(type) {
 	case string:
@@ -29,9 +41,9 @@ func (si *StashItem) ToStash() *CacheItem {
 		valString = JSON(si.Value)
 	}
 
-	return &CacheItem{
-		Key:     si.Key,
-		Value:   valString,
-		Expires: si.Expires,
+	return &stashCacheItem{
+		key:     si.Key,
+		value:   valString,
+		expires: si.Expires,
 	}
 }
