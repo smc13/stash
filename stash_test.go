@@ -46,7 +46,7 @@ func TestGet(t *testing.T) {
 		name   string
 		driver drivers.Driver
 	}{
-		{"file", drivers.NewFileDriver(t.TempDir())},
+		{"file", drivers.NewFileDriver("./test")},
 		{"memory", drivers.NewMemoryDriver()},
 	}
 
@@ -57,24 +57,24 @@ func TestGet(t *testing.T) {
 
 			stashValues(t, ctx, stash)
 
-			res := stash.Get(ctx, "bytes")
-			b, err := res.AsBytes()
+			res, err := stash.Get(ctx, "bytes")
 			assert.NoError(t, err)
-			assert.Equal(t, []byte("bytes"), b)
 
-			res = stash.Get(ctx, "string")
-			s, err := res.AsString()
+			res, err = stash.Get(ctx, "string")
 			assert.NoError(t, err)
+			s := AsString(res)
 			assert.Equal(t, "string", s)
 
-			res = stash.Get(ctx, "int")
-			i, err := res.AsInt64()
+			res, err = stash.Get(ctx, "int")
+			assert.NoError(t, err)
+			i, err := As[int64](res)
 			assert.NoError(t, err)
 			assert.Equal(t, int64(1), i)
 
-			var u user
-			res = stash.Get(ctx, "struct")
-			assert.NoError(t, res.AsJSON(&u))
+			res, err = stash.Get(ctx, "struct")
+			assert.NoError(t, err)
+			u, err := As[user](res)
+			assert.NoError(t, err)
 			assert.Equal(t, user{1, "Hello world"}, u)
 		})
 	}

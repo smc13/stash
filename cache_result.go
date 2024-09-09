@@ -2,15 +2,25 @@ package stash
 
 import (
 	"encoding/json"
+	"log"
 	"strconv"
 	"strings"
-	"unsafe"
 )
 
 type CacheResult struct {
+	*strings.Reader
+
 	key string
 	val string
-	err error
+}
+
+func newCacheResult(key, val string) *CacheResult {
+	log.Println(val)
+	return &CacheResult{
+		Reader: strings.NewReader(val),
+		key:    key,
+		val:    val,
+	}
 }
 
 // Key returns the key of the cache result
@@ -18,44 +28,43 @@ func (c *CacheResult) Key() string {
 	return c.key
 }
 
-// IsError returns true if the result is an error (including cache misses)
-func (c *CacheResult) IsError() bool {
-	return c.err != nil
+func AsString(c *CacheResult) string {
+	return c.val
 }
 
-// Error implements the error interface
-func (c *CacheResult) Error() error {
-	return c.err
-}
+func As[t any](c *CacheResult) (t, error) {
+	var zero t
+	var pzero any = &zero
 
-func (c *CacheResult) AsString() (string, error) {
-	return c.val, c.Error()
-}
+	var a any
+	var err error
+	switch pzero.(type) {
+	case string:
+		a = AsString(c)
+	case int:
+		a, err = strconv.Atoi(c.val)
+	case int64:
+		a, err = strconv.ParseInt(c.val, 10, 64)
+	case uint64:
+		a, err = strconv.ParseUint(c.val, 10, 64)
 
-func (c *CacheResult) AsBytes() ([]byte, error) {
-	str, err := c.AsString()
-	if err != nil {
-		return nil, err
+	default:
+		decoder := json.NewDecoder(c)
+		if err = decoder.Decode(&zero); err != nil {
+			return zero, err
+		}
+
+		a = zero
 	}
 
-	return unsafe.Slice(unsafe.StringData(str), len(str)), nil
+	log.Println(a)
+	return a.(t), nil
 }
 
-func (c *CacheResult) AsInt64() (int64, error) {
-	v, err := c.AsString()
-	if err != nil {
-		return 0, err
+func AsDefault[t any](c *CacheResult, cb func() (t, error)) (t, error) {
+	if c == nil {
+		return cb()
 	}
 
-	return strconv.ParseInt(v, 10, 64)
-}
-
-func (c *CacheResult) AsJSON(val any) error {
-	str, err := c.AsString()
-	if err != nil {
-		return err
-	}
-
-	decoder := json.NewDecoder(strings.NewReader(str))
-	return decoder.Decode(val)
+	return As[t](c)
 }

@@ -2,6 +2,7 @@ package stash
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"errors"
@@ -33,20 +34,20 @@ func New(driver drivers.Driver, opts ...StashOption) (*Stash, error) {
 }
 
 // Get a value from the cache
-func (s *Stash) Get(ctx context.Context, key string) *CacheResult {
+func (s *Stash) Get(ctx context.Context, key string) (*CacheResult, error) {
 	item, err := s.driver.Get(ctx, key)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "error retriving key from cache", slog.String("key", key), slog.String(s.errKey, err.Error()))
-		return &CacheResult{key, "", errors.Join(err, errors.New("cache get error"))}
+		return nil, fmt.Errorf("cache get error: %w", err)
 	}
 
 	if item == nil {
 		slog.DebugContext(ctx, "cache miss", slog.String("key", key))
-		return &CacheResult{key, "", cacheMissErr}
+		return nil, cacheMissErr
 	}
 
 	slog.DebugContext(ctx, "cache hit", slog.String("key", key))
-	return &CacheResult{key, *item, nil}
+	return newCacheResult(key, *item), nil
 }
 
 // Put a value in the cache
@@ -111,16 +112,16 @@ func (s *Stash) Missing(ctx context.Context, key string) bool {
 }
 
 // Pull gets an item from the cache, then removes it
-func (s *Stash) Pull(ctx context.Context, key string) *CacheResult {
-	result := s.Get(ctx, key)
-	if result.IsError() {
-		return result
-	}
-
-	_, err := s.Forget(ctx, key)
+func (s *Stash) Pull(ctx context.Context, key string) (*CacheResult, error) {
+	result, err := s.Get(ctx, key)
 	if err != nil {
-		result.err = errors.Join(err, errors.New("cache pull error"))
+		return nil, err
 	}
 
-	return result
+	_, err = s.Forget(ctx, key)
+	if err != nil {
+		return result, fmt.Errorf("error while removing key from cache: %w", err)
+	}
+
+	return result, nil
 }
